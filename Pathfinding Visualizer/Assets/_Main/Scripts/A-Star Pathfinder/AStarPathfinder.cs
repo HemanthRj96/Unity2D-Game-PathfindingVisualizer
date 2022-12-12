@@ -1,64 +1,41 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using DG.Tweening;
 
 
 public class AStarPathfinder : MonoBehaviour
 {
     // Fields
 
-    [SerializeField] private Grid _grid;
-    [SerializeField] private GridManager _gridManager;
-    [SerializeField] private bool _canMoveDiagonally;
+    [Header("Pathfinder settings")]
+    public bool _canMoveDiagonally;
 
     const float STRAIGHT_COST = 10;
     const float DIAGNOL_COST = 14;
 
 
-    // Properties
-
-    public int pathfindingCycle { get; private set; }
-
-
     // Public methods
 
-    public bool BeginPathfinding()
+    public bool ComputePath(Vector2 startWorldPosition, Vector2 endWorldPosition)
     {
-        Tuple<Vector2, Vector2> points = _gridManager.GetPoints();
-        List<Vector2> pathPoints = new List<Vector2>();
-
-        if (points == null || getPath(points.Item1, points.Item2, out pathPoints) == false)
-            return false;
-
-        for (int i = 0; i < pathPoints.Count; ++i)
-            _gridManager.ModifyPoint(pathPoints[i], Color.Lerp(Color.green, Color.red, (float)i / pathPoints.Count));
-
-        return true;
-    }
-
-
-    // Private methods
-
-    private bool getPath(Vector2 startWorldPosition, Vector2 endWorldPosition, out List<Vector2> pathPoints)
-    {
-        if (!_grid.isGridReady)
+        if (!Grid.grid.isGridReady)
         {
-            pathPoints = null;
-            print("Grid not ready");
             return false;
         }
 
         // initialize start and end node
-        Cell startNode = _grid.GetCell(startWorldPosition);
-        Cell endNode = _grid.GetCell(endWorldPosition);
+        Cell startNode = Grid.grid.GetCell(startWorldPosition);
+        Cell endNode = Grid.grid.GetCell(endWorldPosition);
 
         // check if the cells are valid or not
         if (startNode == null || endNode == null)
         {
-            pathPoints = null;
-            print("Cells invalid");
             return false;
         }
+
+        var updateData = GridManager.manager.updateData;
 
         // initialize open and closed list
         List<Cell> openList = new List<Cell> { startNode };
@@ -67,15 +44,16 @@ public class AStarPathfinder : MonoBehaviour
         startNode.gCost = 0;
         startNode.hCost = getHCost(startNode.index, endNode.index, 1);
 
+        int cycle = 1;
+
         while (openList.Count > 0)
         {
             Cell currentNode = getLowestFCostNode(openList);
 
             // check if the path is complete
-            if (currentNode.index == endNode.index)
+            if (currentNode.Equals(endNode))
             {
-                print("Paths found");
-                pathPoints = tracePath(endNode);
+                updateData.pathpoints = tracePath(endNode);
                 return true;
             }
 
@@ -83,6 +61,7 @@ public class AStarPathfinder : MonoBehaviour
             openList.Remove(currentNode);
             closedList.Add(currentNode);
 
+            updateData.cellUpdateCycle.Add(cycle, new List<Cell>());
             /// get all the neighbours
             var neighbours = getNeighbours(currentNode.index);
 
@@ -91,7 +70,7 @@ public class AStarPathfinder : MonoBehaviour
                 if (neighbour == null || closedList.Contains(neighbour))
                     continue;
 
-                if (neighbour.isValid == false)
+                if (neighbour.canWalk == false)
                 {
                     closedList.Add(neighbour);
                     continue;
@@ -108,16 +87,19 @@ public class AStarPathfinder : MonoBehaviour
                     if (openList.Contains(neighbour) == false)
                         openList.Add(neighbour);
 
-                    _gridManager.ModifyPoint(neighbour.cellOrigin, Color.cyan);
+                    if (neighbour.index != endNode.index && neighbour.index != startNode.index)
+                        updateData.cellUpdateCycle[cycle].Add(neighbour);
                 }
             }
+            cycle++;
         }
 
         // No path found
-        print("Searched everything");
-        pathPoints = null;
         return false;
     }
+
+
+    // Private methods
 
     private float getHCost(Vector2Int startIndex, Vector2Int endIndex, float costMultiplier)
     {
@@ -160,15 +142,15 @@ public class AStarPathfinder : MonoBehaviour
 
         Cell up, upRight, upLeft, down, downRight, downLeft, left, right;
 
-        up = _grid.GetCell(new Vector2Int(index.x, index.y + 1));
-        down = _grid.GetCell(new Vector2Int(index.x, index.y - 1));
-        left = _grid.GetCell(new Vector2Int(index.x - 1, index.y));
-        right = _grid.GetCell(new Vector2Int(index.x + 1, index.y));
+        up = Grid.grid.GetCell(new Vector2Int(index.x, index.y + 1));
+        down = Grid.grid.GetCell(new Vector2Int(index.x, index.y - 1));
+        left = Grid.grid.GetCell(new Vector2Int(index.x - 1, index.y));
+        right = Grid.grid.GetCell(new Vector2Int(index.x + 1, index.y));
 
-        upRight = _grid.GetCell(new Vector2Int(index.x + 1, index.y + 1));
-        upLeft = _grid.GetCell(new Vector2Int(index.x - 1, index.y + 1));
-        downRight = _grid.GetCell(new Vector2Int(index.x + 1, index.y - 1));
-        downLeft = _grid.GetCell(new Vector2Int(index.x - 1, index.y - 1));
+        upRight = Grid.grid.GetCell(new Vector2Int(index.x + 1, index.y + 1));
+        upLeft = Grid.grid.GetCell(new Vector2Int(index.x - 1, index.y + 1));
+        downRight = Grid.grid.GetCell(new Vector2Int(index.x + 1, index.y - 1));
+        downLeft = Grid.grid.GetCell(new Vector2Int(index.x - 1, index.y - 1));
 
         // Add straight paths
         neighbours.Add(up);
@@ -179,13 +161,13 @@ public class AStarPathfinder : MonoBehaviour
         // Add diagonal paths
         if (_canMoveDiagonally)
         {
-            if (up != null && right != null && up.isValid && right.isValid)
+            if (up != null && right != null && up.canWalk && right.canWalk)
                 neighbours.Add(upRight);
-            if (up != null && left != null && up.isValid && left.isValid)
+            if (up != null && left != null && up.canWalk && left.canWalk)
                 neighbours.Add(upLeft);
-            if (down != null && right != null && down.isValid && right.isValid)
+            if (down != null && right != null && down.canWalk && right.canWalk)
                 neighbours.Add(downRight);
-            if (down != null && left != null && down.isValid && left.isValid)
+            if (down != null && left != null && down.canWalk && left.canWalk)
                 neighbours.Add(downLeft);
         }
 
